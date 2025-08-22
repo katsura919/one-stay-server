@@ -35,24 +35,24 @@ const initializeSocket = (httpServer) => {
 			socket.emit('joined', { userId, socketId: socket.id });
 		});
 
-		// Join a specific chat room
+		// Join a specific chat between customer and owner
 		socket.on('join_chat', (chatId) => {
 			socket.join(`chat_${chatId}`);
 			console.log(`Socket ${socket.id} joined chat ${chatId}`);
 			
-			// Notify others in the chat room
+			// Notify the other user in the chat
 			socket.to(`chat_${chatId}`).emit('user_joined_chat', {
 				socketId: socket.id,
 				chatId
 			});
 		});
 
-		// Leave a specific chat room
+		// Leave a specific chat
 		socket.on('leave_chat', (chatId) => {
 			socket.leave(`chat_${chatId}`);
 			console.log(`Socket ${socket.id} left chat ${chatId}`);
 			
-			// Notify others in the chat room
+			// Notify the other user in the chat
 			socket.to(`chat_${chatId}`).emit('user_left_chat', {
 				socketId: socket.id,
 				chatId
@@ -114,32 +114,12 @@ const initializeSocket = (httpServer) => {
 			}
 		});
 
-		// Handle typing indicators
-		socket.on('typing_start', (data) => {
-			const { chatId, userId, username } = data;
-			socket.to(`chat_${chatId}`).emit('user_typing', {
-				userId,
-				username,
-				chatId,
-				isTyping: true
-			});
-		});
-
-		socket.on('typing_stop', (data) => {
-			const { chatId, userId } = data;
-			socket.to(`chat_${chatId}`).emit('user_typing', {
-				userId,
-				chatId,
-				isTyping: false
-			});
-		});
-
 		// Handle message read receipts
 		socket.on('mark_read', async (data) => {
 			try {
 				const { chatId, userId } = data;
 				
-				// Emit to all users in chat that messages have been read
+				// Emit to the other user in chat that messages have been read
 				socket.to(`chat_${chatId}`).emit('messages_read', {
 					chatId,
 					readBy: userId,
@@ -151,24 +131,15 @@ const initializeSocket = (httpServer) => {
 			}
 		});
 
-		// Handle getting online users for a chat
-		socket.on('get_online_users', (chatId) => {
+		// Handle getting online status for the other user in chat
+		socket.on('get_chat_status', (chatId) => {
 			const room = io.sockets.adapter.rooms.get(`chat_${chatId}`);
-			const onlineUsers = [];
+			const isOtherUserOnline = room && room.size > 1; // More than just this user
 			
-			if (room) {
-				room.forEach(socketId => {
-					const userData = connectedUsers.get(socketId);
-					if (userData) {
-						onlineUsers.push({
-							userId: userData.userId,
-							role: userData.role
-						});
-					}
-				});
-			}
-			
-			socket.emit('online_users', { chatId, users: onlineUsers });
+			socket.emit('chat_status', { 
+				chatId, 
+				isOtherUserOnline 
+			});
 		});
 
 		// Handle user disconnect
@@ -181,7 +152,7 @@ const initializeSocket = (httpServer) => {
 				// Remove from connected users
 				connectedUsers.delete(socket.id);
 				
-				// Notify all rooms this user was in
+				// Notify all chats this user was in
 				socket.rooms.forEach(room => {
 					if (room.startsWith('chat_')) {
 						socket.to(room).emit('user_offline', {
@@ -218,35 +189,36 @@ const emitToChat = (chatId, event, data) => {
 	}
 };
 
-// Utility function to get connected users count
-const getConnectedUsersCount = () => {
-	return io ? io.engine.clientsCount : 0;
-};
-
-// Utility function to get users in a specific chat
-const getUsersInChat = (chatId) => {
-	if (!io) return [];
+// Utility function to get chat participants count
+const getChatParticipantsCount = (chatId) => {
+	if (!io) return 0;
 	
 	const room = io.sockets.adapter.rooms.get(`chat_${chatId}`);
-	const users = [];
+	return room ? room.size : 0;
+};
+
+// Utility function to check if other user is online in chat
+const isOtherUserOnlineInChat = (chatId, currentUserId) => {
+	if (!io) return false;
 	
-	if (room) {
-		room.forEach(socketId => {
-			const socket = io.sockets.sockets.get(socketId);
-			if (socket && socket.userData) {
-				users.push(socket.userData);
-			}
-		});
+	const room = io.sockets.adapter.rooms.get(`chat_${chatId}`);
+	if (!room || room.size <= 1) return false;
+	
+	// Check if there's another user besides the current one
+	for (const socketId of room) {
+		const userData = connectedUsers.get(socketId);
+		if (userData && userData.userId !== currentUserId) {
+			return true;
+		}
 	}
-	
-	return users;
+	return false;
 };
 
 module.exports = {
 	initializeSocket,
 	emitToUser,
 	emitToChat,
-	getConnectedUsersCount,
-	getUsersInChat,
+	getChatParticipantsCount,
+	isOtherUserOnlineInChat,
 	getIO: () => io
 };
