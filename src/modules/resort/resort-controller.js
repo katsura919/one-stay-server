@@ -3,11 +3,14 @@ const Resort = require('../../models/resort-model');
 // Create a resort
 exports.createResort = async (req, res) => {
 	try {
-		const { owner_id, resort_name, location, description, image } = req.body;
+		const { resort_name, location, description, image } = req.body;
+		const owner_id = req.user._id; // Get owner ID from authenticated user
+		
 		const resort = new Resort({ owner_id, resort_name, location, description, image });
 		await resort.save();
 		res.status(201).json(resort);
 	} catch (err) {
+		console.error('Create resort error:', err);
 		res.status(500).json({ message: 'Server error.' });
 	}
 };
@@ -31,7 +34,7 @@ exports.searchResorts = async (req, res) => {
 			deleted: false,
 			$or: [
 				{ resort_name: { $regex: q, $options: 'i' } },
-				{ location: { $regex: q, $options: 'i' } }
+				{ 'location.address': { $regex: q, $options: 'i' } }
 			]
 		};
 		const resorts = await Resort.find(q ? query : { deleted: false });
@@ -68,10 +71,14 @@ exports.updateResort = async (req, res) => {
 	}
 };
 
-// Delete resort
+// Delete resort (soft delete)
 exports.deleteResort = async (req, res) => {
 	try {
-		const resort = await Resort.findByIdAndDelete(req.params.id);
+		const resort = await Resort.findByIdAndUpdate(
+			req.params.id,
+			{ deleted: true },
+			{ new: true }
+		);
 		if (!resort) return res.status(404).json({ message: 'Resort not found.' });
 		res.json({ message: 'Resort deleted.' });
 	} catch (err) {

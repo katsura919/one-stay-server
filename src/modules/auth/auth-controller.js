@@ -15,7 +15,23 @@ exports.register = async (req, res) => {
 		const hashedPassword = await bcrypt.hash(password, 10);
 		const user = new User({ username, email, password: hashedPassword, role });
 		await user.save();
-		res.status(201).json({ message: 'User registered successfully.' });
+		
+		// Create JWT token for the new user
+		const token = jwt.sign(
+			{ userId: user._id, role: user.role },
+			process.env.JWT_SECRET || 'secretkey'
+		);
+		
+		res.status(201).json({ 
+			message: 'User registered successfully.',
+			token,
+			user: { 
+				id: user._id,
+				username: user.username, 
+				email: user.email, 
+				role: user.role 
+			} 
+		});
 	} catch (err) {
 		res.status(500).json({ message: 'Server error.' });
 	}
@@ -39,7 +55,15 @@ exports.login = async (req, res) => {
 			{ userId: user._id, role: user.role },
 			process.env.JWT_SECRET || 'secretkey'
 		);
-		res.json({ token, user: { username: user.username, email: user.email, role: user.role } });
+		res.json({ 
+			token, 
+			user: { 
+				id: user._id,
+				username: user.username, 
+				email: user.email, 
+				role: user.role 
+			} 
+		});
 	} catch (err) {
 		res.status(500).json({ message: 'Server error.' });
 	}
