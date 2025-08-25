@@ -121,14 +121,15 @@ const initializeSocket = (httpServer) => {
 					senderId
 				};
 
-				// Emit to all users in the chat room
-				io.to(`chat_${chat._id}`).emit('receive_message', messageWithMetadata);
+				// Emit to all users in the chat room EXCEPT the sender
+				socket.to(`chat_${chat._id}`).emit('receive_message', messageWithMetadata);
 				
-				// Emit to sender for confirmation
+				// Emit to sender for confirmation (different event)
 				socket.emit('message_sent', {
 					messageId: savedMessage._id,
 					chatId: chat._id,
-					timestamp: savedMessage.timestamp
+					timestamp: savedMessage.timestamp,
+					message: messageWithMetadata // Include full message for replacing temp message
 				});
 
 				console.log(`Message sent in chat ${chat._id} by ${sender}`);
