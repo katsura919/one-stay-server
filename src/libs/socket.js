@@ -62,19 +62,44 @@ const initializeSocket = (httpServer) => {
 		// Handle sending messages
 		socket.on('send_message', async (messageData) => {
 			try {
-				const { chatId, sender, text, senderId } = messageData;
+				const { chatId, customer_id, resort_id, sender, text, senderId } = messageData;
 
 				// Validate message data
-				if (!chatId || !sender || !text) {
-					socket.emit('error', { message: 'Invalid message data' });
+				if (!sender || !text) {
+					socket.emit('error', { message: 'Sender and text are required' });
 					return;
 				}
 
-				// Find the chat and add the message
-				const chat = await Chat.findOne({ _id: chatId, deleted: false });
-				if (!chat) {
-					socket.emit('error', { message: 'Chat not found' });
-					return;
+				let chat;
+
+				// If chatId is provided, find existing chat
+				if (chatId) {
+					chat = await Chat.findOne({ _id: chatId, deleted: false });
+					if (!chat) {
+						socket.emit('error', { message: 'Chat not found' });
+						return;
+					}
+				} else {
+					// If no chatId, try to find or create chat using customer_id and resort_id
+					if (!customer_id || !resort_id) {
+						socket.emit('error', { message: 'Either chatId or both customer_id and resort_id are required' });
+						return;
+					}
+
+					// Find existing chat or create new one
+					chat = await Chat.findOne({ customer_id, resort_id, deleted: false });
+					
+					if (!chat) {
+						chat = new Chat({ customer_id, resort_id, messages: [] });
+						await chat.save();
+						
+						// Notify resort owner of new chat
+						emitToUser(resort_id, 'new_chat', {
+							chatId: chat._id,
+							customer_id,
+							resort_id
+						});
+					}
 				}
 
 				// Add message to chat
@@ -92,21 +117,21 @@ const initializeSocket = (httpServer) => {
 				
 				const messageWithMetadata = {
 					...savedMessage.toObject(),
-					chatId,
+					chatId: chat._id,
 					senderId
 				};
 
 				// Emit to all users in the chat room
-				io.to(`chat_${chatId}`).emit('receive_message', messageWithMetadata);
+				io.to(`chat_${chat._id}`).emit('receive_message', messageWithMetadata);
 				
 				// Emit to sender for confirmation
 				socket.emit('message_sent', {
 					messageId: savedMessage._id,
-					chatId,
+					chatId: chat._id,
 					timestamp: savedMessage.timestamp
 				});
 
-				console.log(`Message sent in chat ${chatId} by ${sender}`);
+				console.log(`Message sent in chat ${chat._id} by ${sender}`);
 
 			} catch (error) {
 				console.error('Error sending message:', error);

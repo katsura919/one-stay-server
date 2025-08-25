@@ -55,6 +55,32 @@ exports.getResortById = async (req, res) => {
 	}
 };
 
+// Get resort by owner ID
+exports.getResortByOwnerId = async (req, res) => {
+	try {
+		const { owner_id } = req.params;
+		const resort = await Resort.findOne({ owner_id, deleted: false });
+		if (!resort) return res.status(404).json({ message: 'Resort not found for this owner.' });
+		res.json(resort);
+	} catch (err) {
+		console.error('Get resort by owner ID error:', err);
+		res.status(500).json({ message: 'Server error.' });
+	}
+};
+
+// Get current owner's resort (using authenticated user)
+exports.getMyResort = async (req, res) => {
+	try {
+		const owner_id = req.user._id; // Get owner ID from authenticated user
+		const resort = await Resort.findOne({ owner_id, deleted: false });
+		if (!resort) return res.status(404).json({ message: 'No resort found for your account.' });
+		res.json(resort);
+	} catch (err) {
+		console.error('Get my resort error:', err);
+		res.status(500).json({ message: 'Server error.' });
+	}
+};
+
 // Update resort
 exports.updateResort = async (req, res) => {
 	try {

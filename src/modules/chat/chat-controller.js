@@ -1,16 +1,21 @@
 const Chat = require('../../models/chat-model');
 const { emitToChat, emitToUser } = require('../../libs/socket');
 
-// Start a chat (or get existing)
-exports.startChat = async (req, res) => {
+// Send a message (creates chat if it doesn't exist)
+exports.sendMessage = async (req, res) => {
 	try {
-		const { customer_id, resort_id } = req.body;
+		const { customer_id, resort_id, sender, text } = req.body;
 		
 		// Input validation
-		if (!customer_id || !resort_id) {
-			return res.status(400).json({ message: 'Customer ID and Resort ID are required.' });
+		if (!customer_id || !resort_id || !sender || !text) {
+			return res.status(400).json({ message: 'Customer ID, Resort ID, sender, and text are required.' });
 		}
 
+		if (!['customer', 'owner'].includes(sender)) {
+			return res.status(400).json({ message: 'Sender must be either "customer" or "owner".' });
+		}
+
+		// Find existing chat or create a new one
 		let chat = await Chat.findOne({ customer_id, resort_id, deleted: false })
 			.populate('customer_id', 'username email')
 			.populate('resort_id', 'resort_name location');
@@ -26,6 +31,10 @@ exports.startChat = async (req, res) => {
 				.populate('resort_id', 'resort_name location');
 		}
 
+		// Add the message to the chat
+		chat.messages.push({ sender, text });
+		await chat.save();
+
 		// If it's a new chat, notify the resort owner via Socket.IO
 		if (isNewChat) {
 			emitToUser(resort_id, 'new_chat', {
@@ -35,35 +44,6 @@ exports.startChat = async (req, res) => {
 			});
 		}
 
-		res.json(chat);
-	} catch (err) {
-		console.error('Start chat error:', err);
-		res.status(500).json({ message: 'Server error.' });
-	}
-};
-
-// Send a message
-exports.sendMessage = async (req, res) => {
-	try {
-		const { chat_id, sender, text } = req.body;
-		
-		// Input validation
-		if (!chat_id || !sender || !text) {
-			return res.status(400).json({ message: 'Chat ID, sender, and text are required.' });
-		}
-
-		if (!['customer', 'owner'].includes(sender)) {
-			return res.status(400).json({ message: 'Sender must be either "customer" or "owner".' });
-		}
-
-		const chat = await Chat.findOne({ _id: chat_id, deleted: false })
-			.populate('customer_id', 'username email')
-			.populate('resort_id', 'resort_name location');
-		
-		if (!chat) return res.status(404).json({ message: 'Chat not found.' });
-		
-		chat.messages.push({ sender, text });
-		await chat.save();
 		res.json(chat);
 	} catch (err) {
 		console.error('Send message error:', err);
