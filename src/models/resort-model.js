@@ -5,12 +5,12 @@ const resortSchema = new mongoose.Schema({
 	owner_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 	resort_name: { type: String, required: true },
 	location: {
-		address: { type: String, required: true }, // Human-readable address for display
-		latitude: { type: Number, required: true }, // For map pinpointing
-		longitude: { type: Number, required: true } // For map pinpointing
+		address: { type: String, required: true }, 
+		latitude: { type: Number, required: true }, 
+		longitude: { type: Number, required: true } 
 	},
 	description: { type: String },
-	image: { type: String }, // URL or path to image
+	image: { type: String }, 
 	createdAt: { type: Date, default: Date.now },
 	deleted: { type: Boolean, default: false }
 });
