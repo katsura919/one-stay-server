@@ -4,8 +4,26 @@ const { uploadImage, deleteImage, extractPublicId } = require('../../utils/cloud
 // Create a resort
 exports.createResort = async (req, res) => {
 	try {
-		const { resort_name, location, description } = req.body;
+		const { resort_name, description } = req.body;
 		const owner_id = req.user._id; // Get owner ID from authenticated user
+		
+		// Parse location from JSON string if it exists
+		let location;
+		try {
+			location = typeof req.body.location === 'string' 
+				? JSON.parse(req.body.location) 
+				: req.body.location;
+		} catch (parseError) {
+			console.error('Location parse error:', parseError);
+			return res.status(400).json({ message: 'Invalid location data format.' });
+		}
+
+		// Validate required location fields
+		if (!location || !location.address || !location.latitude || !location.longitude) {
+			return res.status(400).json({ 
+				message: 'Location with address, latitude, and longitude is required.' 
+			});
+		}
 		
 		let imageUrl = null;
 		
@@ -106,7 +124,20 @@ exports.getMyResort = async (req, res) => {
 // Update resort
 exports.updateResort = async (req, res) => {
 	try {
-		const { resort_name, location, description } = req.body;
+		const { resort_name, description } = req.body;
+		
+		// Parse location from JSON string if it exists
+		let location;
+		if (req.body.location) {
+			try {
+				location = typeof req.body.location === 'string' 
+					? JSON.parse(req.body.location) 
+					: req.body.location;
+			} catch (parseError) {
+				console.error('Location parse error:', parseError);
+				return res.status(400).json({ message: 'Invalid location data format.' });
+			}
+		}
 		
 		// First, get the existing resort to check for existing image
 		const existingResort = await Resort.findById(req.params.id);
@@ -138,9 +169,16 @@ exports.updateResort = async (req, res) => {
 			}
 		}
 		
+		// Build update object with only provided fields
+		const updateData = {};
+		if (resort_name) updateData.resort_name = resort_name;
+		if (location) updateData.location = location;
+		if (description !== undefined) updateData.description = description;
+		updateData.image = imageUrl;
+		
 		const resort = await Resort.findByIdAndUpdate(
 			req.params.id,
-			{ resort_name, location, description, image: imageUrl },
+			updateData,
 			{ new: true }
 		);
 		
