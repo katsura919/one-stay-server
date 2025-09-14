@@ -9,7 +9,7 @@ router.get('/availability/:roomId', validateRoomId, reservationController.checkA
 router.get('/booked-dates/:roomId', validateRoomId, reservationController.getBookedDatesForRoom);
 
 // Protected routes - Require authentication
-router.use(authMiddleware); // Apply auth middleware to all routes below
+router.use(authMiddleware);
 
 // Customer routes
 router.post('/', validateReservationDates, validateRoomId, reservationController.createReservation);
@@ -20,8 +20,8 @@ router.delete('/:reservationId', validateReservationId, reservationController.ca
 router.get('/owner-reservations', reservationController.getOwnerReservations);
 router.put('/:reservationId/status', validateReservationId, reservationController.updateReservationStatus);
 
-// Legacy routes for backward compatibility
+// Admin/General routes
 router.get('/', reservationController.getAllReservations);
-router.get('/:id', reservationController.getReservationById);
+router.get('/:reservationId', validateReservationId, reservationController.getReservationById);
 
 module.exports = router;

@@ -354,29 +354,77 @@ const cancelReservation = async (req, res) => {
 	}
 };
 
-// Legacy functions for backward compatibility
-exports.createReservation = createReservation;
-exports.getAllReservations = async (req, res) => {
+/**
+ * Get all reservations (for admin purposes)
+ * GET /api/reservations
+ */
+const getAllReservations = async (req, res) => {
 	try {
-		const reservations = await Reservation.find({ deleted: false });
-		res.json(reservations);
-	} catch (err) {
-		res.status(500).json({ message: 'Server error.' });
-	}
-};
-exports.getReservationById = async (req, res) => {
-	try {
-		const reservation = await Reservation.findOne({ _id: req.params.id, deleted: false });
-		if (!reservation) return res.status(404).json({ message: 'Reservation not found.' });
-		res.json(reservation);
-	} catch (err) {
-		res.status(500).json({ message: 'Server error.' });
-	}
-};
-exports.updateReservationStatus = updateReservationStatus;
-exports.deleteReservation = cancelReservation;
+		const { status } = req.query;
+		
+		// Build query
+		const query = { deleted: false };
+		if (status) {
+			query.status = status;
+		}
 
-// New exports
+		const reservations = await Reservation.find(query)
+			.populate('user_id', 'username email')
+			.populate({
+				path: 'room_id',
+				populate: {
+					path: 'resort_id',
+					select: 'resort_name location'
+				}
+			})
+			.sort({ createdAt: -1 });
+
+		res.json({
+			reservations
+		});
+	} catch (error) {
+		console.error('Error getting all reservations:', error);
+		res.status(500).json({
+			error: 'Failed to get reservations'
+		});
+	}
+};
+
+/**
+ * Get reservation by ID
+ * GET /api/reservations/:reservationId
+ */
+const getReservationById = async (req, res) => {
+	try {
+		const { reservationId } = req.params;
+
+		const reservation = await Reservation.findOne({ _id: reservationId, deleted: false })
+			.populate('user_id', 'username email')
+			.populate({
+				path: 'room_id',
+				populate: {
+					path: 'resort_id',
+					select: 'resort_name location image'
+				}
+			});
+
+		if (!reservation) {
+			return res.status(404).json({
+				error: 'Reservation not found'
+			});
+		}
+
+		res.json({
+			reservation
+		});
+	} catch (error) {
+		console.error('Error getting reservation by ID:', error);
+		res.status(500).json({
+			error: 'Failed to get reservation'
+		});
+	}
+};
+
 module.exports = {
 	checkAvailability,
 	getBookedDatesForRoom,
@@ -385,8 +433,6 @@ module.exports = {
 	getOwnerReservations,
 	updateReservationStatus,
 	cancelReservation,
-	// Legacy exports
-	getAllReservations: exports.getAllReservations,
-	getReservationById: exports.getReservationById,
-	deleteReservation: cancelReservation
+	getAllReservations,
+	getReservationById
 };
