@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const roomController = require('./room-controller');
-const authMiddleware = require('../../middleware/auth');
+const { authMiddleware } = require('../../middleware/auth');
 
 // Public routes - Anyone can view rooms
 router.get('/', roomController.getAllRooms);

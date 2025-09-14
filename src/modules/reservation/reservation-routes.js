@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const reservationController = require('./reservation-controller');
-const authMiddleware = require('../../middleware/auth');
+const { authMiddleware } = require('../../middleware/auth');
 const { validateReservationDates, validateRoomId, validateReservationId } = require('../../middleware/reservationValidation');
 
 // Public routes - Check availability and get booked dates
