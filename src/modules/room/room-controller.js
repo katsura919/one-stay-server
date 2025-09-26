@@ -76,13 +76,44 @@ exports.getRoomsByResort = async (req, res) => {
 // Get room by ID with availability info
 exports.getRoomById = async (req, res) => {
 	try {
-		const room = await Room.findOne({ _id: req.params.id, deleted: false })
+		const { id } = req.params;
+		
+		// Validate room ID format
+		if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+			return res.status(400).json({ 
+				message: 'Invalid room ID format.',
+				error: 'INVALID_ROOM_ID'
+			});
+		}
+
+		const room = await Room.findOne({ _id: id, deleted: false })
 			.populate('resort_id', 'resort_name location image description');
 		
-		if (!room) return res.status(404).json({ message: 'Room not found.' });
+		if (!room) {
+			return res.status(404).json({ 
+				message: 'Room not found or has been deleted.',
+				error: 'ROOM_NOT_FOUND',
+				roomId: id
+			});
+		}
 		
-		// Get booked dates for this room
-		const bookedDates = await getBookedDates(room._id);
+		// Check if resort still exists (additional safety check)
+		if (!room.resort_id) {
+			return res.status(404).json({ 
+				message: 'Room found but associated resort no longer exists.',
+				error: 'RESORT_NOT_FOUND',
+				roomId: id
+			});
+		}
+		
+		// Get booked dates for this room with fallback
+		let bookedDates = [];
+		try {
+			bookedDates = await getBookedDates(room._id);
+		} catch (dateError) {
+			console.warn('Could not fetch booked dates for room:', room._id, dateError);
+			// Continue with empty array as fallback
+		}
 		
 		res.json({
 			...room.toObject(),
@@ -90,7 +121,19 @@ exports.getRoomById = async (req, res) => {
 		});
 	} catch (err) {
 		console.error('Error getting room by ID:', err);
-		res.status(500).json({ message: 'Server error.' });
+		
+		// Check for specific MongoDB errors
+		if (err.name === 'CastError') {
+			return res.status(400).json({ 
+				message: 'Invalid room ID format.',
+				error: 'INVALID_ROOM_ID'
+			});
+		}
+		
+		res.status(500).json({ 
+			message: 'Server error while fetching room details.',
+			error: 'SERVER_ERROR'
+		});
 	}
 };
 

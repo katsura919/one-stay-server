@@ -1,7 +1,7 @@
 const Reservation = require('../../models/reservation-model');
 const Room = require('../../models/room-model');
 const User = require('../../models/user-model');
-const { isRoomAvailable, getBookedDates, calculateTotalPrice } = require('../../utils/dateAvailability');
+const { isRoomAvailable, getBookedDates, convertRangesToDateStrings, calculateTotalPrice } = require('../../utils/dateAvailability');
 
 /**
  * Check room availability for specific dates
@@ -21,11 +21,30 @@ const checkAvailability = async (req, res) => {
 		const startDate = new Date(start_date);
 		const endDate = new Date(end_date);
 
+		// Validate room ID format
+		if (!roomId || !roomId.match(/^[0-9a-fA-F]{24}$/)) {
+			return res.status(400).json({
+				error: 'Invalid room ID format',
+				code: 'INVALID_ROOM_ID'
+			});
+		}
+
 		// Check if room exists
 		const room = await Room.findById(roomId).populate('resort_id');
 		if (!room || room.deleted) {
 			return res.status(404).json({
-				error: 'Room not found'
+				error: 'Room not found or has been deleted',
+				code: 'ROOM_NOT_FOUND',
+				roomId: roomId
+			});
+		}
+
+		// Check if resort still exists
+		if (!room.resort_id) {
+			return res.status(404).json({
+				error: 'Room found but associated resort no longer exists',
+				code: 'RESORT_NOT_FOUND',
+				roomId: roomId
 			});
 		}
 
@@ -53,8 +72,19 @@ const checkAvailability = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error checking availability:', error);
+		
+		// Handle specific MongoDB errors
+		if (error.name === 'CastError') {
+			return res.status(400).json({
+				error: 'Invalid room ID format',
+				code: 'INVALID_ROOM_ID'
+			});
+		}
+		
 		res.status(500).json({
-			error: 'Failed to check availability'
+			error: 'Failed to check availability',
+			code: 'SERVER_ERROR',
+			details: error.message
 		});
 	}
 };
@@ -66,25 +96,91 @@ const checkAvailability = async (req, res) => {
 const getBookedDatesForRoom = async (req, res) => {
 	try {
 		const { roomId } = req.params;
+		console.log('=== getBookedDatesForRoom DEBUG START ===');
+		console.log('Requested roomId:', roomId);
+
+		// Validate room ID format
+		if (!roomId || !roomId.match(/^[0-9a-fA-F]{24}$/)) {
+			console.log('Invalid room ID format:', roomId);
+			return res.status(400).json({
+				error: 'Invalid room ID format',
+				code: 'INVALID_ROOM_ID'
+			});
+		}
+		console.log('Room ID format is valid');
 
 		// Check if room exists
+		console.log('Searching for room in database...');
 		const room = await Room.findById(roomId);
-		if (!room || room.deleted) {
-			return res.status(404).json({
-				error: 'Room not found'
+		console.log('Room found:', room ? 'YES' : 'NO');
+		if (room) {
+			console.log('Room details:', {
+				id: room._id,
+				room_type: room.room_type,
+				deleted: room.deleted,
+				resort_id: room.resort_id
 			});
 		}
 
-		const bookedDates = await getBookedDates(roomId);
+		if (!room || room.deleted) {
+			console.log('Room not found or deleted');
+			return res.status(404).json({
+				error: 'Room not found or has been deleted',
+				code: 'ROOM_NOT_FOUND',
+				roomId: roomId
+			});
+		}
+
+		// Get booked dates with fallback
+		let bookedDates = [];
+		console.log('Attempting to fetch booked dates...');
+		try {
+			console.log('Calling getBookedDates utility function...');
+			const bookedRanges = await getBookedDates(roomId);
+			console.log('getBookedDates returned ranges:', bookedRanges);
+			
+			// Convert ranges to individual date strings for frontend calendar
+			console.log('Converting ranges to date strings...');
+			bookedDates = convertRangesToDateStrings(bookedRanges);
+			console.log('Converted to date strings:', bookedDates);
+			console.log('Booked dates count:', bookedDates ? bookedDates.length : 0);
+		} catch (dateError) {
+			console.error('Error in getBookedDates utility:', dateError);
+			console.warn('Could not fetch booked dates for room:', roomId, dateError);
+			// Continue with empty array as fallback
+			bookedDates = [];
+		}
+
+		console.log('Final response data:', {
+			room_id: roomId,
+			booked_dates: bookedDates
+		});
 
 		res.json({
 			room_id: roomId,
 			booked_dates: bookedDates
 		});
+		console.log('=== getBookedDatesForRoom DEBUG END ===');
 	} catch (error) {
-		console.error('Error getting booked dates:', error);
+		console.error('=== CRITICAL ERROR in getBookedDatesForRoom ===');
+		console.error('Error details:', error);
+		console.error('Error message:', error.message);
+		console.error('Error stack:', error.stack);
+		
+		// Handle specific MongoDB errors
+		if (error.name === 'CastError') {
+			console.log('Returning 400 - CastError');
+			return res.status(400).json({
+				error: 'Invalid room ID format',
+				code: 'INVALID_ROOM_ID'
+			});
+		}
+		
+		console.log('Returning 500 - Server Error');
 		res.status(500).json({
-			error: 'Failed to get booked dates'
+			error: 'Failed to get booked dates',
+			code: 'SERVER_ERROR',
+			details: error.message
 		});
 	}
 };
@@ -95,14 +191,59 @@ const getBookedDatesForRoom = async (req, res) => {
  */
 const createReservation = async (req, res) => {
 	try {
+		console.log('=== createReservation DEBUG START ===');
+		console.log('req.body:', req.body);
+		console.log('req.headers:', req.headers);
+		console.log('req.user:', req.user);
+		console.log('req.validatedDates:', req.validatedDates);
+		
+		// Safety check for req.body
+		if (!req.body) {
+			console.error('req.body is undefined');
+			return res.status(400).json({
+				error: 'Request body is missing',
+				code: 'MISSING_BODY'
+			});
+		}
+
 		const { room_id, start_date, end_date } = req.body;
-		const user_id = req.user.id; // From auth middleware
+		console.log('Destructured values:', { room_id, start_date, end_date });
+
+		const user_id = req.user?.id; // From auth middleware
+		console.log('User ID from auth:', user_id);
+
+		if (!user_id) {
+			return res.status(401).json({
+				error: 'User authentication required',
+				code: 'AUTH_REQUIRED'
+			});
+		}
+
+		// Validate room ID format
+		if (!room_id || !room_id.match(/^[0-9a-fA-F]{24}$/)) {
+			console.log('Invalid room_id:', room_id);
+			return res.status(400).json({
+				error: 'Invalid room ID format',
+				code: 'INVALID_ROOM_ID'
+			});
+		}
 
 		// Get room details
-		const room = await Room.findById(room_id);
+		const room = await Room.findById(room_id).populate('resort_id');
 		if (!room || room.deleted) {
 			return res.status(404).json({
-				error: 'Room not found'
+				error: 'Room not found or has been deleted',
+				code: 'ROOM_NOT_FOUND',
+				roomId: room_id
+			});
+		}
+
+		// Check if room's resort is still active
+		if (!room.resort_id || room.resort_id.deleted) {
+			return res.status(404).json({
+				error: 'Room found but associated resort is no longer available',
+				code: 'RESORT_NOT_AVAILABLE',
+				roomId: room_id
 			});
 		}
 
@@ -149,8 +290,27 @@ const createReservation = async (req, res) => {
 		});
 	} catch (error) {
 		console.error('Error creating reservation:', error);
+		
+		// Handle specific MongoDB errors
+		if (error.name === 'CastError') {
+			return res.status(400).json({
+				error: 'Invalid room or user ID format',
+				code: 'INVALID_ID_FORMAT'
+			});
+		}
+		
+		if (error.name === 'ValidationError') {
+			return res.status(400).json({
+				error: 'Validation failed',
+				code: 'VALIDATION_ERROR',
+				details: error.message
+			});
+		}
+		
 		res.status(500).json({
-			error: 'Failed to create reservation'
+			error: 'Failed to create reservation',
+			code: 'SERVER_ERROR',
+			details: error.message
 		});
 	}
 };

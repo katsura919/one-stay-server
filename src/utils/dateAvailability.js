@@ -14,7 +14,7 @@ const isRoomAvailable = async (roomId, startDate, endDate, excludeReservationId 
 		const query = {
 			room_id: roomId,
 			deleted: false,
-			status: { $in: ['pending', 'approved'] }, // Only consider pending/approved reservations
+			status: 'approved', // Only consider approved reservations
 			$or: [
 				// New reservation starts during existing reservation
 				{
@@ -60,20 +60,74 @@ const isRoomAvailable = async (roomId, startDate, endDate, excludeReservationId 
  */
 const getBookedDates = async (roomId) => {
 	try {
+		console.log('=== getBookedDates utility function START ===');
+		console.log('Fetching reservations for roomId:', roomId);
+		
 		const reservations = await Reservation.find({
 			room_id: roomId,
 			deleted: false,
-			status: { $in: ['pending', 'approved'] }
+			status: 'approved' // Only show approved reservations as booked on calendar
 		}).select('start_date end_date status');
 
-		return reservations.map(reservation => ({
+		console.log('Found reservations:', reservations.length);
+		console.log('Reservations data:', reservations);
+
+		const bookedRanges = reservations.map(reservation => ({
 			start_date: reservation.start_date,
 			end_date: reservation.end_date,
 			status: reservation.status
 		}));
+
+		console.log('Mapped booked ranges:', bookedRanges);
+		console.log('=== getBookedDates utility function END ===');
+
+		return bookedRanges;
 	} catch (error) {
-		console.error('Error getting booked dates:', error);
+		console.error('=== ERROR in getBookedDates utility ===');
+		console.error('Error details:', error);
+		console.error('Error message:', error.message);
+		console.error('Error stack:', error.stack);
 		throw error;
+	}
+};
+
+/**
+ * Convert date ranges to individual date strings for frontend calendar
+ * @param {Array} dateRanges - Array of date range objects
+ * @returns {Array} - Array of date strings in YYYY-MM-DD format
+ */
+const convertRangesToDateStrings = (dateRanges) => {
+	try {
+		console.log('=== convertRangesToDateStrings START ===');
+		console.log('Input date ranges:', dateRanges);
+		
+		const dateStrings = [];
+		
+		dateRanges.forEach((range) => {
+			const startDate = new Date(range.start_date);
+			const endDate = new Date(range.end_date);
+			
+			console.log('Processing range:', {
+				start: startDate.toISOString().split('T')[0],
+				end: endDate.toISOString().split('T')[0]
+			});
+			
+			// Include all dates from start_date to end_date (excluding checkout day)
+			for (let date = new Date(startDate); date < endDate; date.setDate(date.getDate() + 1)) {
+				const dateString = date.toISOString().split('T')[0];
+				dateStrings.push(dateString);
+			}
+		});
+		
+		// Remove duplicates
+		const uniqueDateStrings = [...new Set(dateStrings)];
+		console.log('Final date strings:', uniqueDateStrings);
+		console.log('=== convertRangesToDateStrings END ===');
+		
+		return uniqueDateStrings;
+	} catch (error) {
+		console.error('Error converting ranges to date strings:', error);
+		return [];
 	}
 };
 
@@ -106,6 +160,7 @@ const calculateTotalPrice = (pricePerNight, startDate, endDate) => {
 module.exports = {
 	isRoomAvailable,
 	getBookedDates,
+	convertRangesToDateStrings,
 	calculateNights,
 	calculateTotalPrice
 };

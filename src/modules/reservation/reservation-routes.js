@@ -12,7 +12,7 @@ router.get('/booked-dates/:roomId', validateRoomId, reservationController.getBoo
 router.use(authMiddleware);
 
 // Customer routes
-router.post('/', validateReservationDates, validateRoomId, reservationController.createReservation);
+router.post('/', validateReservationDates, reservationController.createReservation);
 router.get('/my-reservations', reservationController.getUserReservations);
 router.delete('/:reservationId', validateReservationId, reservationController.cancelReservation);
 
