@@ -51,7 +51,7 @@ exports.createFeedback = async (req, res) => {
 		// Determine who is receiving the feedback
 		if (feedback_type === 'customer_to_owner') {
 			// Customer giving feedback to owner
-			if (from_user_id !== reservation.user_id.toString()) {
+			if (from_user_id !== reservation.user_id._id.toString()) {
 				return res.status(403).json({ 
 					message: 'Only the customer can give feedback to owner for this reservation.' 
 				});
@@ -64,7 +64,7 @@ exports.createFeedback = async (req, res) => {
 					message: 'Only the resort owner can give feedback to customer for this reservation.' 
 				});
 			}
-			to_user_id = reservation.user_id;
+			to_user_id = reservation.user_id._id;
 		}
 
 		// Check if feedback already exists for this reservation and type
@@ -271,7 +271,15 @@ exports.getFeedbackEligibility = async (req, res) => {
 		let feedbackType = null;
 		let alreadySubmitted = false;
 
-		if (user_id === reservation.user_id.toString()) {
+		console.log('Feedback Eligibility Debug:');
+		console.log('- User ID:', user_id);
+		console.log('- Customer ID:', reservation.user_id._id.toString());
+		console.log('- Owner ID:', resort.owner_id.toString());
+		console.log('- Existing customer feedback:', !!customerFeedback);
+		console.log('- Existing owner feedback:', !!ownerFeedback);
+		console.log('- Reservation status:', reservation.status);
+
+		if (user_id === reservation.user_id._id.toString()) {
 			// User is the customer
 			feedbackType = 'customer_to_owner';
 			alreadySubmitted = !!customerFeedback;
