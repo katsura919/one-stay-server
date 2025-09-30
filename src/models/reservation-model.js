@@ -6,7 +6,11 @@ const reservationSchema = new mongoose.Schema({
 	start_date: { type: Date, required: true },
 	end_date: { type: Date, required: true },
 	total_price: { type: Number, required: true },
-	status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+	status: { 
+		type: String, 
+		enum: ['pending', 'approved', 'rejected', 'completed', 'cancelled'], 
+		default: 'pending' 
+	},
 	createdAt: { type: Date, default: Date.now },
 	deleted: { type: Boolean, default: false }
 });

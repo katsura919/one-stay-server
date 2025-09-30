@@ -19,8 +19,10 @@ router.delete('/:reservationId', validateReservationId, reservationController.ca
 // Owner routes
 router.get('/owner-reservations', reservationController.getOwnerReservations);
 router.put('/:reservationId/status', validateReservationId, reservationController.updateReservationStatus);
+router.put('/:reservationId/complete', validateReservationId, reservationController.completeReservation);
 
-// Admin/General routes
+// Admin/System routes
+router.post('/auto-complete', reservationController.autoCompleteReservations);
 router.get('/', reservationController.getAllReservations);
 router.get('/:reservationId', validateReservationId, reservationController.getReservationById);
 

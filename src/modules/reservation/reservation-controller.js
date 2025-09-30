@@ -585,6 +585,153 @@ const getReservationById = async (req, res) => {
 	}
 };
 
+/**
+ * Mark reservation as completed (for feedback eligibility)
+ * PUT /api/reservations/:reservationId/complete
+ */
+const completeReservation = async (req, res) => {
+	try {
+		console.log('=== COMPLETE RESERVATION DEBUG START ===');
+		const { reservationId } = req.params;
+		const user_id = req.user.id;
+		console.log('Reservation ID:', reservationId);
+		console.log('User ID:', user_id);
+
+		// Get reservation with room and resort details
+		const reservation = await Reservation.findById(reservationId)
+			.populate({
+				path: 'room_id',
+				populate: {
+					path: 'resort_id'
+				}
+			});
+
+		console.log('Found reservation:', reservation ? 'YES' : 'NO');
+		if (reservation) {
+			console.log('Reservation status:', reservation.status);
+			console.log('Reservation end_date:', reservation.end_date);
+			console.log('Reservation deleted:', reservation.deleted);
+		}
+
+		if (!reservation || reservation.deleted) {
+			console.log('ERROR: Reservation not found or deleted');
+			return res.status(404).json({
+				error: 'Reservation not found'
+			});
+		}
+
+		// Check if user is the owner of the resort
+		console.log('Resort owner ID:', reservation.room_id.resort_id.owner_id.toString());
+		console.log('Current user ID:', user_id);
+		console.log('Owner check:', reservation.room_id.resort_id.owner_id.toString() === user_id);
+		
+		if (reservation.room_id.resort_id.owner_id.toString() !== user_id) {
+			console.log('ERROR: Not authorized - user is not resort owner');
+			return res.status(403).json({
+				error: 'Not authorized to complete this reservation'
+			});
+		}
+
+		// Check if reservation is approved
+		console.log('Status check - Current status:', reservation.status);
+		if (reservation.status !== 'approved') {
+			console.log('ERROR: Reservation status is not approved, current status:', reservation.status);
+			return res.status(400).json({
+				error: 'Only approved reservations can be marked as completed',
+				currentStatus: reservation.status
+			});
+		}
+
+		// Check if the start date has passed (reservation must have started)
+		const currentDate = new Date();
+		const startDate = new Date(reservation.start_date);
+		const endDate = new Date(reservation.end_date);
+		console.log('Date check - Current date:', currentDate.toISOString());
+		console.log('Date check - Start date:', startDate.toISOString());
+		console.log('Date check - End date:', endDate.toISOString());
+		console.log('Date check - Has started?', currentDate >= startDate);
+		
+		if (currentDate < startDate) {
+			console.log('ERROR: Cannot complete before start date');
+			return res.status(400).json({
+				error: 'Reservation cannot be completed before the start date (guest has not checked in yet)',
+				startDate: reservation.start_date,
+				currentDate: currentDate.toISOString()
+			});
+		}
+
+		// Update reservation status to completed
+		reservation.status = 'completed';
+		await reservation.save();
+
+		// Populate the response
+		const completedReservation = await Reservation.findById(reservationId)
+			.populate('user_id', 'username email')
+			.populate({
+				path: 'room_id',
+				select: 'room_type capacity price_per_night',
+				populate: {
+					path: 'resort_id',
+					select: 'resort_name location'
+				}
+			});
+
+		res.json({
+			message: 'Reservation marked as completed successfully',
+			reservation: completedReservation,
+			feedbackEligible: true
+		});
+
+	} catch (error) {
+		console.error('Error completing reservation:', error);
+		res.status(500).json({
+			error: 'Failed to complete reservation'
+		});
+	}
+};
+
+/**
+ * Auto-complete reservations (can be run as a cron job)
+ * POST /api/reservations/auto-complete
+ */
+const autoCompleteReservations = async (req, res) => {
+	try {
+		const currentDate = new Date();
+		
+		// Find all approved reservations that have ended
+		const reservationsToComplete = await Reservation.find({
+			status: 'approved',
+			end_date: { $lt: currentDate },
+			deleted: false
+		}).populate({
+			path: 'room_id',
+			populate: {
+				path: 'resort_id'
+			}
+		});
+
+		const completedReservations = [];
+
+		for (const reservation of reservationsToComplete) {
+			reservation.status = 'completed';
+			await reservation.save();
+			completedReservations.push(reservation._id);
+		}
+
+		res.json({
+			message: `Auto-completed ${completedReservations.length} reservations`,
+			completedCount: completedReservations.length,
+			completedReservationIds: completedReservations
+		});
+
+	} catch (error) {
+		console.error('Error auto-completing reservations:', error);
+		res.status(500).json({
+			error: 'Failed to auto-complete reservations'
+		});
+	}
+};
+
 module.exports = {
 	checkAvailability,
 	getBookedDatesForRoom,
@@ -594,5 +741,7 @@ module.exports = {
 	updateReservationStatus,
 	cancelReservation,
 	getAllReservations,
-	getReservationById
+	getReservationById,
+	completeReservation,
+	autoCompleteReservations
 };
