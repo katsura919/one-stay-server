@@ -470,7 +470,7 @@ const updateReservationStatus = async (req, res) => {
 };
 
 /**
- * Cancel reservation (customer only)
+ * Cancel reservation (customer or owner)
  * DELETE /api/reservations/:reservationId
  */
 const cancelReservation = async (req, res) => {
@@ -478,33 +478,69 @@ const cancelReservation = async (req, res) => {
 		const { reservationId } = req.params;
 		const user_id = req.user.id;
 
-		const reservation = await Reservation.findById(reservationId);
+		const reservation = await Reservation.findById(reservationId)
+			.populate({
+				path: 'room_id',
+				populate: {
+					path: 'resort_id'
+				}
+			});
+
 		if (!reservation || reservation.deleted) {
 			return res.status(404).json({
 				error: 'Reservation not found'
 			});
 		}
 
-		// Check if user owns this reservation
-		if (reservation.user_id.toString() !== user_id) {
+		// Check if user is either the customer OR the resort owner
+		const isCustomer = reservation.user_id.toString() === user_id;
+		const isOwner = reservation.room_id.resort_id.owner_id.toString() === user_id;
+
+		if (!isCustomer && !isOwner) {
 			return res.status(403).json({
 				error: 'Not authorized to cancel this reservation'
 			});
 		}
 
-		// Only allow cancellation of pending reservations
-		if (reservation.status !== 'pending') {
-			return res.status(400).json({
-				error: 'Only pending reservations can be cancelled'
-			});
+		// Different cancellation rules for customers vs owners
+		if (isCustomer) {
+			// Customer can only cancel pending reservations
+			if (reservation.status !== 'pending') {
+				return res.status(400).json({
+					error: 'Only pending reservations can be cancelled by customers',
+					currentStatus: reservation.status
+				});
+			}
+		} else if (isOwner) {
+			// Owner can cancel pending or approved reservations
+			if (!['pending', 'approved'].includes(reservation.status)) {
+				return res.status(400).json({
+					error: 'Only pending or approved reservations can be cancelled by the resort owner',
+					currentStatus: reservation.status
+				});
+			}
 		}
 
-		// Soft delete
-		reservation.deleted = true;
+		// Update reservation status to cancelled instead of soft delete
+		reservation.status = 'cancelled';
 		await reservation.save();
 
+		// Populate the response with updated reservation data
+		const cancelledReservation = await Reservation.findById(reservationId)
+			.populate('user_id', 'username email')
+			.populate({
+				path: 'room_id',
+				select: 'room_type capacity price_per_night',
+				populate: {
+					path: 'resort_id',
+					select: 'resort_name location'
+				}
+			});
+
 		res.json({
-			message: 'Reservation cancelled successfully'
+			message: 'Reservation cancelled successfully',
+			reservation: cancelledReservation,
+			cancelledBy: isOwner ? 'owner' : 'customer'
 		});
 	} catch (error) {
 		console.error('Error cancelling reservation:', error);
