@@ -352,13 +352,32 @@ const getUserReservations = async (req, res) => {
 };
 
 /**
- * Get owner's reservations (for their resorts)
- * GET /api/reservations/owner-reservations
+ * Get owner's reservations (for their resorts) with search, filtering, and pagination
+ * GET /api/reservations/owner-reservations?status=pending&search=john&page=1&limit=10&sortBy=createdAt&sortOrder=desc
  */
 const getOwnerReservations = async (req, res) => {
 	try {
 		const owner_id = req.user.id;
-		const { status } = req.query;
+		const { 
+			status, 
+			search, 
+			page = 1, 
+			limit = 10, 
+			sortBy = 'createdAt', 
+			sortOrder = 'desc',
+			startDate,
+			endDate
+		} = req.query;
+
+		// Validate pagination parameters
+		const pageNum = Math.max(1, parseInt(page) || 1);
+		const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10)); // Max 100 items per page
+		const skip = (pageNum - 1) * limitNum;
+
+		// Validate sort parameters
+		const validSortFields = ['createdAt', 'start_date', 'end_date', 'total_price', 'status'];
+		const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+		const sortDirection = sortOrder === 'asc' ? 1 : -1;
 
 		// First, get all rooms belonging to owner's resorts
 		const rooms = await Room.find({ deleted: false })
@@ -371,30 +390,169 @@ const getOwnerReservations = async (req, res) => {
 			.filter(room => room.resort_id)
 			.map(room => room._id);
 
-		// Build query for reservations
-		const query = { room_id: { $in: ownerRoomIds }, deleted: false };
-		if (status) {
-			query.status = status;
+		if (ownerRoomIds.length === 0) {
+			return res.json({
+				reservations: [],
+				pagination: {
+					currentPage: pageNum,
+					totalPages: 0,
+					totalReservations: 0,
+					hasNextPage: false,
+					hasPrevPage: false,
+					limit: limitNum
+				}
+			});
 		}
 
-		const reservations = await Reservation.find(query)
-			.populate('user_id', 'username email')
-			.populate({
-				path: 'room_id',
-				populate: {
-					path: 'resort_id',
-					select: 'resort_name location'
+		// Build base query for reservations
+		const baseQuery = { 
+			room_id: { $in: ownerRoomIds }, 
+			deleted: false 
+		};
+
+		// Add status filter
+		if (status && status !== 'all') {
+			baseQuery.status = status.toLowerCase();
+		}
+
+		// Add date range filter
+		if (startDate || endDate) {
+			baseQuery.start_date = {};
+			if (startDate) {
+				baseQuery.start_date.$gte = new Date(startDate);
+			}
+			if (endDate) {
+				baseQuery.start_date.$lte = new Date(endDate);
+			}
+		}
+
+		// For search functionality, we need to use aggregation pipeline
+		let aggregationPipeline = [
+			{ $match: baseQuery },
+			{
+				$lookup: {
+					from: 'users',
+					localField: 'user_id',
+					foreignField: '_id',
+					as: 'user_info'
 				}
-			})
-			.sort({ createdAt: -1 });
+			},
+			{
+				$lookup: {
+					from: 'rooms',
+					localField: 'room_id',
+					foreignField: '_id',
+					as: 'room_info'
+				}
+			},
+			{
+				$lookup: {
+					from: 'resorts',
+					localField: 'room_info.resort_id',
+					foreignField: '_id',
+					as: 'resort_info'
+				}
+			},
+			{
+				$unwind: { path: '$user_info', preserveNullAndEmptyArrays: true }
+			},
+			{
+				$unwind: { path: '$room_info', preserveNullAndEmptyArrays: true }
+			},
+			{
+				$unwind: { path: '$resort_info', preserveNullAndEmptyArrays: true }
+			}
+		];
+
+		// Add search filter if provided
+		if (search && search.trim()) {
+			const searchRegex = { $regex: search.trim(), $options: 'i' };
+			aggregationPipeline.push({
+				$match: {
+					$or: [
+						{ 'user_info.username': searchRegex },
+						{ 'user_info.email': searchRegex },
+						{ 'room_info.room_type': searchRegex },
+						{ 'resort_info.resort_name': searchRegex }
+					]
+				}
+			});
+		}
+
+		// Get total count for pagination
+		const countPipeline = [...aggregationPipeline, { $count: 'total' }];
+		const countResult = await Reservation.aggregate(countPipeline);
+		const totalReservations = countResult.length > 0 ? countResult[0].total : 0;
+		const totalPages = Math.ceil(totalReservations / limitNum);
+
+		// Add sorting, skip, and limit
+		aggregationPipeline.push(
+			{ $sort: { [sortField]: sortDirection } },
+			{ $skip: skip },
+			{ $limit: limitNum }
+		);
+
+		// Project the final structure to match the original populate format
+		aggregationPipeline.push({
+			$project: {
+				_id: 1,
+				user_id: '$user_info._id',
+				room_id: '$room_info._id',
+				start_date: 1,
+				end_date: 1,
+				total_price: 1,
+				status: 1,
+				createdAt: 1,
+				user_id_populated: {
+					_id: '$user_info._id',
+					username: '$user_info.username',
+					email: '$user_info.email'
+				},
+				room_id_populated: {
+					_id: '$room_info._id',
+					room_type: '$room_info.room_type',
+					capacity: '$room_info.capacity',
+					price_per_night: '$room_info.price_per_night',
+					resort_id: {
+						_id: '$resort_info._id',
+						resort_name: '$resort_info.resort_name',
+						location: '$resort_info.location'
+					}
+				}
+			}
+		});
+
+		// Execute the aggregation
+		const reservations = await Reservation.aggregate(aggregationPipeline);
+
+		// Calculate pagination info
+		const hasNextPage = pageNum < totalPages;
+		const hasPrevPage = pageNum > 1;
 
 		res.json({
-			reservations
+			reservations,
+			pagination: {
+				currentPage: pageNum,
+				totalPages,
+				totalReservations,
+				hasNextPage,
+				hasPrevPage,
+				limit: limitNum
+			},
+			filters: {
+				status: status || 'all',
+				search: search || '',
+				startDate: startDate || null,
+				endDate: endDate || null,
+				sortBy: sortField,
+				sortOrder: sortOrder
+			}
 		});
 	} catch (error) {
 		console.error('Error getting owner reservations:', error);
 		res.status(500).json({
-			error: 'Failed to get reservations'
+			error: 'Failed to get reservations',
+			details: error.message
 		});
 	}
 };
