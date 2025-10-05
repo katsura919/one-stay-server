@@ -29,7 +29,8 @@ const initializeSocket = (httpServer) => {
 			// Join user to their personal room
 			socket.join(`user_${userId}`);
 			
-			console.log(`User ${userId} (${role}) joined with socket ${socket.id}`);
+			console.log(`[JOIN] User ${userId} (${role}) joined with socket ${socket.id}`);
+			console.log(`[JOIN] User joined room: user_${userId}`);
 			
 			// Emit to user that they've joined successfully
 			socket.emit('joined', { userId, socketId: socket.id });
@@ -71,6 +72,7 @@ const initializeSocket = (httpServer) => {
 				}
 
 				let chat;
+				let isNewChat = false;
 
 				// If chatId is provided, find existing chat
 				if (chatId) {
@@ -92,6 +94,7 @@ const initializeSocket = (httpServer) => {
 					if (!chat) {
 						chat = new Chat({ customer_id, resort_id, messages: [] });
 						await chat.save();
+						isNewChat = true;
 						
 						// Notify resort owner of new chat
 						emitToUser(resort_id, 'new_chat', {
@@ -151,13 +154,22 @@ const initializeSocket = (httpServer) => {
 				await chat.populate('resort_id', 'owner_id');
 				const ownerId = chat.resort_id.owner_id;
 
+				console.log(`[SOCKET] About to emit chat_updated:`);
+				console.log(`  - Chat ID: ${chat._id}`);
+				console.log(`  - Customer ID: ${actualCustomerId}`);
+				console.log(`  - Resort ID: ${actualResortId}`);
+				console.log(`  - Owner ID: ${ownerId}`);
+				console.log(`  - Message: ${text}`);
+				console.log(`  - Sender: ${sender}`);
+				console.log(`  - Is New Chat: ${isNewChat}`);
+
 				// Notify customer about chat update
 				emitToUser(actualCustomerId, 'chat_updated', chatUpdateData);
+				console.log(`[SOCKET] ✅ Emitted chat_updated to customer ${actualCustomerId}`);
 				
 				// Notify owner about chat update (use owner_id from resort)
 				emitToUser(ownerId, 'chat_updated', chatUpdateData);
-
-				console.log(`Emitted chat_updated to customer ${actualCustomerId} and owner ${ownerId}`);
+				console.log(`[SOCKET] ✅ Emitted chat_updated to owner ${ownerId}`);
 
 				console.log(`Message sent in chat ${chat._id} by ${sender}`);
 
@@ -231,7 +243,14 @@ const initializeSocket = (httpServer) => {
 // Utility function to emit to specific user
 const emitToUser = (userId, event, data) => {
 	if (io) {
+		const room = io.sockets.adapter.rooms.get(`user_${userId}`);
+		const roomSize = room ? room.size : 0;
+		console.log(`[EMIT] Emitting '${event}' to user_${userId} (${roomSize} connected sockets)`);
+		console.log(`[EMIT] Event data:`, JSON.stringify(data, null, 2));
+		
 		io.to(`user_${userId}`).emit(event, data);
+	} else {
+		console.log(`[EMIT] ERROR: io is not initialized, cannot emit to user_${userId}`);
 	}
 };
 
