@@ -133,6 +133,32 @@ const initializeSocket = (httpServer) => {
 					totalMessages: chat.messages.length // Include updated count for pagination
 				});
 
+				// Emit chat update to both customer and owner for chat list refresh
+				const chatUpdateData = {
+					chatId: chat._id,
+					lastMessage: text,
+					lastMessageTime: savedMessage.timestamp,
+					sender,
+					isNewChat
+				};
+
+				// Get the actual customer and resort IDs from the chat document
+				const actualCustomerId = chat.customer_id;
+				const actualResortId = chat.resort_id;
+
+				// We need to get the owner_id from the resort to emit to the correct user
+				// Let's populate the resort to get owner_id
+				await chat.populate('resort_id', 'owner_id');
+				const ownerId = chat.resort_id.owner_id;
+
+				// Notify customer about chat update
+				emitToUser(actualCustomerId, 'chat_updated', chatUpdateData);
+				
+				// Notify owner about chat update (use owner_id from resort)
+				emitToUser(ownerId, 'chat_updated', chatUpdateData);
+
+				console.log(`Emitted chat_updated to customer ${actualCustomerId} and owner ${ownerId}`);
+
 				console.log(`Message sent in chat ${chat._id} by ${sender}`);
 
 			} catch (error) {

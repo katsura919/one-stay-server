@@ -18,7 +18,7 @@ exports.sendMessage = async (req, res) => {
 		// Find existing chat or create a new one
 		let chat = await Chat.findOne({ customer_id, resort_id, deleted: false })
 			.populate('customer_id', 'username email')
-			.populate('resort_id', 'resort_name location');
+			.populate('resort_id', 'resort_name location owner_id');
 		
 		let isNewChat = false;
 		if (!chat) {
@@ -28,21 +28,43 @@ exports.sendMessage = async (req, res) => {
 			// Populate after saving
 			chat = await Chat.findById(chat._id)
 				.populate('customer_id', 'username email')
-				.populate('resort_id', 'resort_name location');
+				.populate('resort_id', 'resort_name location owner_id');
 		}
 
 		// Add the message to the chat
 		chat.messages.push({ sender, text });
 		await chat.save();
 
+		// Get the newly added message
+		const newMessage = chat.messages[chat.messages.length - 1];
+
 		// If it's a new chat, notify the resort owner via Socket.IO
 		if (isNewChat) {
-			emitToUser(resort_id, 'new_chat', {
+			const ownerId = chat.resort_id.owner_id;
+			emitToUser(ownerId, 'new_chat', {
 				chatId: chat._id,
 				customer: chat.customer_id,
 				resort: chat.resort_id
 			});
 		}
+
+		// Emit chat update to both customer and owner for chat list refresh
+		const chatUpdateData = {
+			chatId: chat._id,
+			lastMessage: text,
+			lastMessageTime: newMessage.timestamp,
+			sender,
+			isNewChat
+		};
+
+		// Get owner ID from the populated resort
+		const ownerId = chat.resort_id.owner_id;
+
+		// Notify customer about chat update
+		emitToUser(customer_id, 'chat_updated', chatUpdateData);
+		
+		// Notify owner about chat update (use owner_id from resort)
+		emitToUser(ownerId, 'chat_updated', chatUpdateData);
 
 		res.json(chat);
 	} catch (err) {
