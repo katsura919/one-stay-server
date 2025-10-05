@@ -1,5 +1,5 @@
 const Chat = require('../../models/chat-model');
-const { emitToChat, emitToUser } = require('../../libs/socket');
+const { emitToChat, emitToUser } = require('../../libs/chat-socket');
 
 // Send a message (creates chat if it doesn't exist)
 exports.sendMessage = async (req, res) => {
@@ -51,15 +51,49 @@ exports.sendMessage = async (req, res) => {
 	}
 };
 
-// Get chat history
+// Get chat history with pagination (recent messages first)
 exports.getChat = async (req, res) => {
 	try {
+		const { limit = 5, skip = 0 } = req.query;
+		const pageLimit = Math.min(parseInt(limit), 50); // Max 50 messages per request
+		const skipCount = parseInt(skip) || 0;
+		
 		const chat = await Chat.findOne({ _id: req.params.id, deleted: false })
 			.populate('customer_id', 'username email')
 			.populate('resort_id', 'resort_name location');
+			
 		if (!chat) return res.status(404).json({ message: 'Chat not found.' });
-		res.json(chat);
+		
+		// Get total message count
+		const totalMessages = chat.messages.length;
+		
+		// Get paginated messages (most recent first, then reverse for correct order)
+		const messages = chat.messages
+			.slice(-pageLimit - skipCount, totalMessages - skipCount)
+			.reverse()
+			.slice(0, pageLimit)
+			.reverse();
+		
+		// Return chat with paginated messages and pagination info
+		const response = {
+			_id: chat._id,
+			customer_id: chat.customer_id,
+			resort_id: chat.resort_id,
+			messages,
+			createdAt: chat.createdAt,
+			deleted: chat.deleted,
+			pagination: {
+				totalMessages,
+				currentPage: Math.floor(skipCount / pageLimit) + 1,
+				messagesPerPage: pageLimit,
+				hasMore: totalMessages > skipCount + pageLimit,
+				remaining: Math.max(0, totalMessages - skipCount - pageLimit)
+			}
+		};
+		
+		res.json(response);
 	} catch (err) {
+		console.error('Get chat error:', err);
 		res.status(500).json({ message: 'Server error.' });
 	}
 };
@@ -102,6 +136,43 @@ exports.markAsRead = async (req, res) => {
 		// For now, we'll just return success. This can be extended to track read status per message
 		res.json({ message: 'Messages marked as read.' });
 	} catch (err) {
+		res.status(500).json({ message: 'Server error.' });
+	}
+};
+
+// Load older messages with pagination
+exports.loadMoreMessages = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { limit = 10, skip = 0 } = req.query;
+		const pageLimit = Math.min(parseInt(limit), 50); // Max 50 messages per request
+		const skipCount = parseInt(skip) || 0;
+		
+		const chat = await Chat.findOne({ _id: id, deleted: false });
+		if (!chat) return res.status(404).json({ message: 'Chat not found.' });
+		
+		const totalMessages = chat.messages.length;
+		
+		// Get older messages (working backwards from the end)
+		const startIndex = Math.max(0, totalMessages - skipCount - pageLimit);
+		const endIndex = totalMessages - skipCount;
+		
+		const messages = chat.messages.slice(startIndex, endIndex);
+		
+		const response = {
+			messages,
+			pagination: {
+				totalMessages,
+				currentSkip: skipCount,
+				messagesPerPage: pageLimit,
+				hasMore: startIndex > 0,
+				remaining: startIndex
+			}
+		};
+		
+		res.json(response);
+	} catch (err) {
+		console.error('Load more messages error:', err);
 		res.status(500).json({ message: 'Server error.' });
 	}
 };

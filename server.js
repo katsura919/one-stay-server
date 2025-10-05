@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const connectDB = require('./src/libs/db');
-const { initializeSocket } = require('./src/libs/socket');
+const { initializeSocket } = require('./src/libs/chat-socket');
 const routes = require('./src/index');
 
 const app = express();

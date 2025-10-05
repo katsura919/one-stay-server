@@ -6,6 +6,7 @@ router.post('/send', chatController.sendMessage);
 router.get('/user/:user_id', chatController.getUserChats);
 router.get('/resort/:resort_id/chats', chatController.getResortChats);
 router.get('/:id', chatController.getChat);
+router.get('/:id/load-more', chatController.loadMoreMessages);
 router.put('/:id/read', chatController.markAsRead);
 router.delete('/:id', chatController.deleteChat);
 

@@ -129,7 +129,8 @@ const initializeSocket = (httpServer) => {
 					messageId: savedMessage._id,
 					chatId: chat._id,
 					timestamp: savedMessage.timestamp,
-					message: messageWithMetadata // Include full message for replacing temp message
+					message: messageWithMetadata, // Include full message for replacing temp message
+					totalMessages: chat.messages.length // Include updated count for pagination
 				});
 
 				console.log(`Message sent in chat ${chat._id} by ${sender}`);
