@@ -1,4 +1,6 @@
 const Resort = require('../../models/resort-model');
+const Room = require('../../models/room-model');
+const Feedback = require('../../models/feedback-model');
 const { uploadImage, deleteImage, extractPublicId } = require('../../utils/cloudinary');
 
 // Create a resort
@@ -62,6 +64,62 @@ exports.getAllResorts = async (req, res) => {
 		const resorts = await Resort.find({ deleted: false });
 		res.json(resorts);
 	} catch (err) {
+		res.status(500).json({ message: 'Server error.' });
+	}
+};
+
+// Get featured resorts with enhanced data (rating, reviews, price)
+exports.getFeaturedResorts = async (req, res) => {
+	try {
+		const resorts = await Resort.find({ deleted: false }).lean();
+		
+		// Enhance each resort with aggregated data
+		const enhancedResorts = await Promise.all(
+			resorts.map(async (resort) => {
+				// Get average rating from feedbacks
+				const feedbacks = await Feedback.find({ 
+					resort_id: resort._id,
+					type: 'customer_to_owner'
+				});
+				
+				const averageRating = feedbacks.length > 0
+					? feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length
+					: 0;
+				
+				// Get total reviews count
+				const reviewsCount = feedbacks.length;
+				
+				// Get lowest room price
+				const rooms = await Room.find({ 
+					resort_id: resort._id,
+					deleted: false 
+				}).sort({ price_per_night: 1 }).limit(1);
+				
+				const lowestPrice = rooms.length > 0 ? rooms[0].price_per_night : 0;
+				
+				// Get available rooms count
+				const availableRoomsCount = await Room.countDocuments({
+					resort_id: resort._id,
+					status: 'available',
+					deleted: false
+				});
+				
+				return {
+					...resort,
+					rating: parseFloat(averageRating.toFixed(2)),
+					reviews: reviewsCount,
+					price_per_night: lowestPrice,
+					available_rooms: availableRoomsCount
+				};
+			})
+		);
+		
+		// Sort by rating (highest first)
+		enhancedResorts.sort((a, b) => b.rating - a.rating);
+		
+		res.json(enhancedResorts);
+	} catch (err) {
+		console.error('Get featured resorts error:', err);
 		res.status(500).json({ message: 'Server error.' });
 	}
 };
