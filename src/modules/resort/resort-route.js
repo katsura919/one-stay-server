@@ -6,10 +6,10 @@ const { uploadSingle, handleMulterError } = require('../../middleware/upload');
 
 // Public routes
 router.get('/', resortController.getAllResorts);
-router.get('/featured', resortController.getFeaturedResorts);
 router.get('/search', resortController.searchResorts);
-router.get('/:id', resortController.getResortById);
+router.get('/featured', resortController.getFeaturedResorts);
 router.get('/owner/:owner_id', resortController.getResortByOwnerId);
+router.get('/:id', resortController.getResortById);
 
 // Protected routes (require authentication)
 router.get('/my/resort', authMiddleware, ownerOnly, resortController.getMyResort);

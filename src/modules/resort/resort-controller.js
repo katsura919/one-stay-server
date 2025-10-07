@@ -114,8 +114,13 @@ exports.getFeaturedResorts = async (req, res) => {
 			})
 		);
 		
-		// Sort by rating (highest first)
-		enhancedResorts.sort((a, b) => b.rating - a.rating);
+		// Sort by rating (highest first), then by creation date (newest first)
+		enhancedResorts.sort((a, b) => {
+			if (b.rating !== a.rating) {
+				return b.rating - a.rating;
+			}
+			return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+		});
 		
 		res.json(enhancedResorts);
 	} catch (err) {
