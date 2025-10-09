@@ -115,8 +115,12 @@ exports.getRoomById = async (req, res) => {
 			// Continue with empty array as fallback
 		}
 		
+		// Convert to object and ensure resort_id is properly included
+		const roomObject = room.toObject();
+		
 		res.json({
-			...room.toObject(),
+			...roomObject,
+			resort_id_populated: roomObject.resort_id, // Explicitly map for clarity
 			booked_dates: bookedDates
 		});
 	} catch (err) {
