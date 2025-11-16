@@ -10,9 +10,13 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-const clientOrigin = "http://localhost:5173";
+const clientOrigins = [
+  "http://localhost:5173",
+  "https://onestay-web.vercel.app",
+];
+
 const corsOptions = {
-  origin: clientOrigin,
+  origin: clientOrigin, 
   optionsSuccessStatus: 200,
 };
 
