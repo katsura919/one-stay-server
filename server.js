@@ -16,7 +16,7 @@ const clientOrigins = [
 ];
 
 const corsOptions = {
-  origin: clientOrigin, 
+  origin: clientOrigins,
   optionsSuccessStatus: 200,
 };
 
