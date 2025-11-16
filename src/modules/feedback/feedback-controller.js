@@ -119,60 +119,64 @@ exports.createFeedback = async (req, res) => {
 
 // Get feedbacks for a room (public reviews from customers)
 exports.getFeedbacksForRoom = async (req, res) => {
-	try {
-		const { room_id } = req.params;
-		const { page = 1, limit = 10 } = req.query;
+  try {
+    const { room_id } = req.params;
+    const { page = 1, limit = 10 } = req.query;
 
-		const feedbacks = await Feedback.find({ 
-			room_id, 
-			feedback_type: 'customer_to_owner',
-			deleted: false 
-		})
-		.populate('from_user_id', 'username')
-		.populate('reservation_id', 'start_date end_date')
-		.sort({ createdAt: -1 })
-		.limit(limit * 1)
-		.skip((page - 1) * limit);
+    // --- 2. Convert room_id string to ObjectId ---
+    const roomObjectId = new mongoose.Types.ObjectId(room_id);
 
-		const total = await Feedback.countDocuments({ 
-			room_id, 
-			feedback_type: 'customer_to_owner',
-			deleted: false 
-		});
+    // This find query works because Mongoose casts the string automatically
+    const feedbacks = await Feedback.find({
+      room_id: room_id, // Mongoose is smart here
+      feedback_type: "customer_to_owner",
+      deleted: false,
+    })
+      .populate("from_user_id", "username")
+      .populate("reservation_id", "start_date end_date")
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
 
-		// Calculate average rating
-		const ratingStats = await Feedback.aggregate([
-			{ 
-				$match: { 
-					room_id: mongoose.Types.ObjectId(room_id), 
-					feedback_type: 'customer_to_owner',
-					deleted: false 
-				} 
-			},
-			{ 
-				$group: { 
-					_id: null, 
-					averageRating: { $avg: '$rating' },
-					totalReviews: { $sum: 1 }
-				} 
-			}
-		]);
+    const total = await Feedback.countDocuments({
+      room_id: room_id, // Mongoose is smart here too
+      feedback_type: "customer_to_owner",
+      deleted: false,
+    });
 
-		res.json({
-			feedbacks,
-			pagination: {
-				currentPage: page,
-				totalPages: Math.ceil(total / limit),
-				totalItems: total,
-				itemsPerPage: limit
-			},
-			ratingStats: ratingStats[0] || { averageRating: 0, totalReviews: 0 }
-		});
+    // --- 3. Use the ObjectId in the aggregation ---
+    // The aggregate pipeline is "dumber" and needs the exact type.
+    const ratingStats = await Feedback.aggregate([
+      {
+        $match: {
+          room_id: roomObjectId, // <-- Use the converted ObjectId
+          feedback_type: "customer_to_owner",
+          deleted: false,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
 
-	} catch (err) {
-		console.error('Get feedbacks error:', err);
-		res.status(500).json({ message: 'Server error.' });
-	}
+    res.json({
+      feedbacks,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: limit,
+      },
+      ratingStats: ratingStats[0] || { averageRating: 0, totalReviews: 0 },
+    });
+  } catch (err) {
+    console.error("Get feedbacks error:", err);
+    res.status(500).json({ message: "Server error.", error: err });
+  }
 };
 
 // Get feedback summary for a user (both given and received)
